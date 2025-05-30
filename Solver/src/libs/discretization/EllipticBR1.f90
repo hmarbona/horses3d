@@ -591,6 +591,7 @@ module EllipticBR1
             call GetViscosity(e % storage % Q(IMC,i,j,k), mu(i,j,k))      
          end do                ; end do                ; end do
 
+		 mu = mu + e % storage % mu_NS(1,:,:,:)									  
          kappa = 0.0_RP
          beta  = multiphase % M0_star
 

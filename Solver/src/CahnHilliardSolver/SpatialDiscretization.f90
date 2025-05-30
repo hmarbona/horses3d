@@ -118,7 +118,7 @@ module SpatialDiscretization
 !
 !////////////////////////////////////////////////////////////////////////
 !
-      subroutine ComputeTimeDerivative( mesh, particles, time, mode, HO_Elements)
+      subroutine ComputeTimeDerivative( mesh, particles, time, mode, HO_Elements, Level)
          IMPLICIT NONE 
 !
 !        ---------
@@ -130,6 +130,7 @@ module SpatialDiscretization
          REAL(KIND=RP)                   :: time
          integer,             intent(in) :: mode
          logical, intent(in), optional   :: HO_Elements
+		 integer, intent(in), optional   :: Level
 !
 !        ---------------
 !        Local variables
@@ -371,7 +372,7 @@ error stop
 
       end subroutine ComputeTimeDerivative
 
-      subroutine ComputeTimeDerivativeIsolated( mesh, particles, time, mode, HO_Elements)
+      subroutine ComputeTimeDerivativeIsolated( mesh, particles, time, mode, HO_Elements, Level)
          IMPLICIT NONE 
 !
 !        ---------
@@ -383,6 +384,7 @@ error stop
          REAL(KIND=RP)                   :: time
          integer,             intent(in) :: mode
          logical, intent(in), optional   :: HO_Elements
+		 integer, intent(in), optional   :: Level
          
          error stop 'ComputeTimeDerivativeIsolated not implemented for Cahn-Hilliard'
       end subroutine ComputeTimeDerivativeIsolated

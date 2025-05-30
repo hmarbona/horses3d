@@ -53,6 +53,9 @@
          type(MultiTauEstim_t)                  :: TauEstimator
          character(len=LINE_LENGTH)             :: integration_method
          integer                                :: RKStep_key
+		 REAL(KIND=RP)                          :: ML_percentile
+		 INTEGER                                :: ML_ReLevel_Iteration, ML_Counter
+		 logical                                :: ML_ReLevel									   
          PROCEDURE(TimeStep_FCN), NOPASS , POINTER :: RKStep
 !
 !        ========
@@ -147,6 +150,7 @@
          self % tolerance      =  controlVariables % doublePrecisionValueForKey("convergence tolerance")
          self % RKStep         => TakeRK3Step
 
+		 call sem % mesh % MLRK % construct(sem % mesh, 1) ! default 1 level  																		
          if (controlVariables % containsKey(TIME_INTEGRATION_KEY)) then
             self % integration_method = controlVariables % stringValueForKey(TIME_INTEGRATION_KEY, LINE_LENGTH)
          else
@@ -182,7 +186,25 @@
                self % RKStep => TakeEulerRK3Step
                self % RKStep_key = EULER_RK3_KEY
                !Create the array of High-Order elements and faces for the Euler-RK3 method
-               call sem % mesh % UpdateHOArrays()
+               call sem % mesh % UpdateHOArrays()	  
+			case(ML_RK3_NAME)
+				if ( controlVariables % ContainsKey("percentile") ) then
+				     self % ML_percentile = controlVariables % doublePrecisionValueForKey("percentile")
+					 self % ML_percentile = min(max(self % ML_percentile,0.0001_RP),1.0_RP)
+				else 
+					 self % ML_percentile = 0.9_RP
+			    end if 
+				if ( controlVariables % ContainsKey("relevel iteration") ) then
+				     self % ML_ReLevel_Iteration = controlVariables % integerValueForKey ("relevel iteration")
+				else 
+					 self % ML_ReLevel_Iteration = 1000000000
+			    end if
+				self % ML_ReLevel = .true. 
+                self % RKStep => TakeMLRK3Step
+                self % RKStep_key = ML_RK3_KEY
+				self % ML_Counter = 0
+				
+				call sem % mesh % MLRK % construct(sem % mesh, 3) ! construct 3 level  
 
             case default
                print*, "Explicit time integration method not implemented"
@@ -278,6 +300,13 @@
                write(STD_OUT,'(A)') "SSPRK43"
             case (EULER_RK3_KEY)
                write(STD_OUT,'(A)') "Euler-RK3"
+			case (ML_RK3_KEY)
+               write(STD_OUT,'(A)') "Multi-Level RK3"
+			   write(STD_OUT,'(35X,A,A23,F7.4)') "->" , "Percentile: ", self % ML_percentile
+			   write(STD_OUT,'(35X,A,A23,I14)')   "->" , "Update Iteration: ", self % ML_ReLevel_Iteration
+			   write(STD_OUT,'(35X,A,A23,A)')  "->" , "Cut-Off Level 1: ","< CFL Percentile and CFL < 0.6 "
+			   write(STD_OUT,'(35X,A,A23,A)')  "->" , "Cut-Off Level 2: ","<2 x CFL Percentile and CFL < 1.5 "
+			   write(STD_OUT,'(35X,A,A23,A)')  "->" , "Cut-Off Level 3: "," if not Level 1 or 2 "
             end select
 
             write(STD_OUT,'(30X,A,A28)',advance='no') "->" , "Stage limiter: "
@@ -411,6 +440,7 @@
       use FASMultigridClass
       use AnisFASMultigridClass
       use RosenbrockTimeIntegrator
+	  use ExplicitMethods			  
       use StopwatchClass
       use FluidData
       use mainKeywordsModule
@@ -451,8 +481,10 @@
       REAL(KIND=RP)                 :: t
       REAL(KIND=RP)                 :: maxResidual(NCONS)
       REAL(KIND=RP)                 :: dt
+	  REAL(KIND=RP)                 :: cfl_percentile, globalMax, globalMin, maxCFLInterf
       integer                       :: k
       integer                       :: eID
+	  logical                       :: updatelevel
       CHARACTER(len=LINE_LENGTH)    :: SolutionFileName
       ! Time-step solvers:
       type(FASMultigrid_t)          :: FASSolver
@@ -654,6 +686,16 @@
 #if defined(NAVIERSTOKES)
             if( sem% mesh% IBM% active ) call sem% mesh% IBM% SemiImplicitCorrection( sem% mesh% elements, t, dt )
 #endif
+			if (self % RKStep_key .eq. ML_RK3_KEY) then
+				self % ML_Counter = self % ML_Counter + 1
+				if ((self % ML_Counter .eq. self % ML_ReLevel_Iteration).or.(self % ML_ReLevel)) THEN
+					CALL DetermineCFL(sem, self % dt, self % ML_percentile, cfl_percentile, globalMax, globalMin, maxCFLInterf)
+					call sem % mesh % MLRK % construct(sem % mesh, 3) ! reconstruct 3 level  
+					CALL sem % mesh % MLRK % update (sem % mesh, cfl_percentile, globalMax, globalMin, maxCFLInterf)
+					self % ML_ReLevel = .false. 
+					self % ML_Counter = 0
+				end if 
+		    end if 
             CALL self % RKStep ( sem % mesh, sem % particles, t, dt, ComputeTimeDerivative, iter=k+1)
 #if defined(NAVIERSTOKES)
             if( sem% mesh% IBM% active ) call sem% mesh% IBM% SemiImplicitCorrection( sem% mesh% elements, t, dt )
