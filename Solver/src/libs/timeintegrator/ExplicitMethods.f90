@@ -1000,25 +1000,11 @@ MODULE ExplicitMethods
 
       INTEGER       :: i, j, k, id, lID, locLevel, k2, k3, k1
 	  REAL(KIND=RP) :: deltaTL(3), deltaStep(3), tk(3), corrector
-	  REAL(KIND=RP) :: aL(3,3,3,3), cL(3,3,3,3),dd(3,3),cLL(3) ! 
+	  REAL(KIND=RP) :: cL(3)=0.0_RP ! 
 	  
 	  d(1,1)=1.0_RP/3.0_RP
 	  d(2,1)=5.0_RP/12.0_RP
 	  d(3,1)=1.0_RP/4.0_RP
-	  
-	  dd = matmul(d,transpose(d))
-	  
-	  cL(1,:,:,1) = c(1)*dd
-	  cL(1,:,:,2) = c(2)*dd
-	  cL(1,:,:,3) = c(3)*dd
-	  
-	  cL(2,:,1,:) = c(1)*dd
-	  cL(2,:,2,:) = c(2)*dd
-	  cL(2,:,3,:) = c(3)*dd
-	  
-	  cL(3,1,:,:) = c(1)*dd
-	  cL(3,2,:,:) = c(2)*dd
-	  cL(3,3,:,:) = c(3)*dd
 	 
 	  deltaStep(1) =  b(2)
       deltaStep(2) =  b(3)-b(2)
@@ -1072,14 +1058,22 @@ MODULE ExplicitMethods
 !$omp end parallel do	
 				
 !           		Marching in time, all elements
-				    cLL = cL(:,k3,k2,k1)
+				    cL(1) = c(k1) * d(k2,1) * d(k3,1)
+					cL(2) = c(k2) * d(k1,1) * d(k3,1)
+					cL(3) = c(k3) * d(k1,1) * d(k2,1)
 !$omp parallel do schedule(runtime)	private(id, corrector)			
 					do i = 1, MLIter(1,1)
-					    corrector = cLL(3)
-						if (i.gt.MLIter(2,1)) corrector = cLL(1) 
-						if (i.gt.MLIter(3,1)) corrector = cLL(2)
+					
+					    if (i.gt.MLIter(2,1)) then
+						   corrector = cL(1)
+						else if (i.gt.MLIter(3,1)) then
+						   corrector = cL(2)
+					    else
+						   corrector = cL(3)
+						end if 
 						
 						id = MLIter_eID(i)
+						
 						associate(storage => mesh % elements(id) % storage)
 #ifdef FLOW             
 						storage % Q    = storage % Q  + corrector * deltaT * storage % G_NS

@@ -21,6 +21,7 @@ module pAdaptationClass
    use HexMeshClass                    , only: HexMesh
    use ElementConnectivityDefinitions  , only: neighborFaces
    use ReadMeshFile                    , only: NumOfElemsFromMeshFile
+   use Headers
    implicit none
    
 #include "Includes.h"
@@ -59,10 +60,25 @@ module pAdaptationClass
       real(kind=RP)     :: y_span(2)
       real(kind=RP)     :: z_span(2)
       integer           :: mode
+	  integer           :: polynomial(3)
       
       contains
          procedure      :: initialize => OverEnriching_Initialize
    end type overenriching_t
+   !-----------------------------------------------------------------
+   ! Type for storing the adaptation based on range value of variable
+   !-----------------------------------------------------------------
+   type :: pAdaptVariable_t
+      integer           :: ID
+      integer           :: variable
+      real(kind=RP)     :: maxValue
+      real(kind=RP)     :: minValue
+      integer           :: polynomial(3)
+	  integer           :: polynomialDef(3)
+      
+      contains
+         procedure      :: initialize => pAdaptVariable_Initialize
+   end type pAdaptVariable_t
    
    !-------------------------------------------------------
    ! Main base type for performing a p-adaptation procedure
@@ -84,6 +100,7 @@ module pAdaptationClass
       real(kind=RP)                     :: nextAdaptationTime = huge(1._RP)
       character(len=BC_STRING_LENGTH), allocatable :: conformingBoundaries(:) ! Stores the conforming boundaries (the length depends on FTDictionaryClass)
       type(overenriching_t)  , allocatable :: overenriching(:)
+	  type(pAdaptVariable_t) , allocatable :: adaptVariable(:)
       
       contains
          procedure(constructInterface), deferred :: pAdaptation_Construct
@@ -182,6 +199,7 @@ module pAdaptationClass
       character(LINE_LENGTH)         :: paramFile
       character(LINE_LENGTH)         :: in_label
       character(LINE_LENGTH)         :: R_Nmax
+	  character(LINE_LENGTH)         :: poly
       logical, allocatable           :: R_increasing
       !-------------------------------------------------
       
@@ -244,8 +262,18 @@ module pAdaptationClass
          Nmax = max(Nmax,maxval(Nx_r),maxval(Ny_r),maxval(Nz_r))
          deallocate (Nx_r , Ny_r , Nz_r )
       end if
+	  
+!     p-Refinement based on variable
+!     ------------------------
+      ! call get_command_argument(1, paramFile) !
+      ! write(in_label , '(A,I0)') "#define adapt variable " , i
+      ! call get_command_argument(1, paramFile) !
+      ! call readValueInRegion ( trim ( paramFile )  , "polynomial " , poly      , in_label , "# end" ) 
+	  ! if ( R_Nmax /= "" ) then
+		! Nmax = max(Nmax,maxval(getIntArrayFromString(poly)))
+      ! end if
       
-      Nmax = max(Nmax,maxval(Nx),maxval(Ny),maxval(Nz))
+      Nmax = 10! max(Nmax,maxval(Nx),maxval(Ny),maxval(Nz))
       
 !
 !     *****************************************************************************
@@ -274,6 +302,7 @@ module pAdaptationClass
 !///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 !
       subroutine OverEnriching_Initialize(this,oID)
+	     use MPI_Process_Info
          implicit none
          !----------------------------------
          class(overenriching_t) :: this
@@ -284,7 +313,7 @@ module pAdaptationClass
          character(LINE_LENGTH) :: x_span
          character(LINE_LENGTH) :: y_span
          character(LINE_LENGTH) :: z_span
-         character(LINE_LENGTH) :: mode
+         character(LINE_LENGTH) :: mode, poly
          integer, allocatable   :: order
          !----------------------------------
          
@@ -304,6 +333,7 @@ module pAdaptationClass
          call readValueInRegion ( trim ( paramFile )  , "y span" , y_span      , in_label , "# end" ) 
          call readValueInRegion ( trim ( paramFile )  , "z span" , z_span      , in_label , "# end" ) 
          call readValueInRegion ( trim ( paramFile )  , "mode"   , mode        , in_label , "# end" )
+		 call readValueInRegion ( trim ( paramFile )  , "polynomial " , poly      , in_label , "# end" )
          
          if (allocated(order)) then
             this % order = order
@@ -323,10 +353,23 @@ module pAdaptationClass
          else
             this % mode = 1
          end if
-         
+		 
+         this % polynomial = getIntArrayFromString(poly)
          this % x_span = getRealArrayFromString(x_span)
          this % y_span = getRealArrayFromString(y_span)
          this % z_span = getRealArrayFromString(z_span)
+		 
+         if ( .not. MPI_Process % isRoot ) return		 
+!
+!        Write Information 
+!        -----------------------------------------------         
+         write(STD_OUT,'(/)')
+         call SubSection_Header("Initialize Adaptation based on Overenriching Box")
+		    write(STD_OUT,'(30X,A,A27,A20)') "->" , "ID: " , this % ID
+            write(STD_OUT,'(30X,A,A27,A20)') "->" , "x span: " , x_span
+			write(STD_OUT,'(30X,A,A27,A20)') "->" , "y span: " , y_span
+			write(STD_OUT,'(30X,A,A27,A20)') "->" , "z span: " , z_span
+			write(STD_OUT,'(30X,A,A27,A14)') "->" , "Polynomials: " , poly  
          
          deallocate(order)
          
@@ -437,13 +480,13 @@ readloop:do
                    (corners(3,cornerID) > region % z_span(1) .and. corners(3,cornerID) < region % z_span(2)) ) then
 
                   if (region % mode == 1) then !Increase mode
-                     NNew(1,eID) = max(min(NNew(1,eID) + region % order, Nmax(1)), Nmin(1))
-                     NNew(2,eID) = max(min(NNew(2,eID) + region % order, Nmax(2)), Nmin(2))
-                     NNew(3,eID) = max(min(NNew(3,eID) + region % order, Nmax(3)), Nmin(3))
+                     NNew(1,eID) = region % polynomial(1) !max(min(NNew(1,eID) + region % order, Nmax(1)), Nmin(1))
+                     NNew(2,eID) = region % polynomial(2) !max(min(NNew(2,eID) + region % order, Nmax(2)), Nmin(2))
+                     NNew(3,eID) = region % polynomial(3) !max(min(NNew(3,eID) + region % order, Nmax(3)), Nmin(3))
                   else if (region % mode == 2) then !Set mode
-                     NNew(1,eID) = max(min(region % order, Nmax(1)), Nmin(1))
-                     NNew(2,eID) = max(min(region % order, Nmax(2)), Nmin(2))
-                     NNew(3,eID) = max(min(region % order, Nmax(3)), Nmin(3))
+                     NNew(1,eID) = region % polynomial(1) !max(min(region % order, Nmax(1)), Nmin(1))
+                     NNew(2,eID) = region % polynomial(2) !max(min(region % order, Nmax(2)), Nmin(2))
+                     NNew(3,eID) = region % polynomial(3) !max(min(region % order, Nmax(3)), Nmin(3))
                   end if
                   
                   enriched(eID) = .TRUE.
@@ -458,6 +501,183 @@ readloop:do
       end do
       
    end subroutine OverEnrichRegions
+!
+!///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+!
+!     ROUTINES FOR p Adaptation based on variable
+!
+!///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+!
+      subroutine pAdaptVariable_Initialize(this,oID)
+	     use MPI_Process_Info
+         implicit none
+         !----------------------------------
+         class(pAdaptVariable_t) :: this
+         integer, intent(in)     :: oID
+         !----------------------------------
+         character(LINE_LENGTH) :: paramFile
+         character(LINE_LENGTH) :: in_label
+         character(LINE_LENGTH) :: rangeValue
+         character(LINE_LENGTH) :: poly, polyDef
+		 character(LINE_LENGTH) :: variable
+		 real(kind=RP)          :: minmaxValue(2)
+         !----------------------------------
+         
+         call get_command_argument(1, paramFile)
+!
+!        Get adaptation variable ID
+!        ---------------------------
+         this % ID = oID
+!
+!        Search for the parameters in the case file
+!        ------------------------------------------
+         write(in_label , '(A,I0)') "#define adapt variable " , this % ID
+         
+         call get_command_argument(1, paramFile) !
+         call readValueInRegion ( trim ( paramFile )  , "variable"  , variable       , in_label , "# end" ) 
+         call readValueInRegion ( trim ( paramFile )  , "value range" , rangeValue      , in_label , "# end" ) 
+         call readValueInRegion ( trim ( paramFile )  , "polynomial " , poly      , in_label , "# end" )
+         call readValueInRegion ( trim ( paramFile )  , "polynomial default" , polyDef      , in_label , "# end" ) 		 
+        
+
+         if ( variable /= "" ) then
+            select case ( trim (variable) )
+               case ("rho")
+                  this % variable = 1
+			   case ("q2")
+                  this % variable = 2
+               case default
+                  this % variable = 1
+            end select
+         else
+            this % variable = 1
+         end if
+         
+		 minmaxValue = getRealArrayFromString(rangeValue)
+		 this % polynomial = getIntArrayFromString(poly)
+		 this % polynomialDef = getIntArrayFromString(polyDef)
+		 
+         this % maxValue = maxval(minmaxValue)
+         this % minValue = minval(minmaxValue)
+		
+         if ( .not. MPI_Process % isRoot ) return
+!
+!        Write Information 
+!        -----------------------------------------------         
+         write(STD_OUT,'(/)')
+         call SubSection_Header("Initialize Adaptation based on Variable")
+		    write(STD_OUT,'(30X,A,A27,A20)') "->" , "ID: " , this % ID
+            write(STD_OUT,'(30X,A,A27,A10)') "->" , "Variable: " , variable
+			write(STD_OUT,'(30X,A,A27,F10.4)') "->" , "Max. value: " , this % maxValue
+			write(STD_OUT,'(30X,A,A27,F10.4)') "->" , "Min. value: " , this % minValue  
+			write(STD_OUT,'(30X,A,A27,A14)') "->" , "Polynomials: " , poly  
+			write(STD_OUT,'(30X,A,A27,A14)') "->" , "Polynomials Def: " , polyDef  
+         
+      end subroutine pAdaptVariable_Initialize
+!
+!///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+!
+      subroutine getNoOfpAdaptVariables(no_of_regions)
+      implicit none
+      integer, intent(out)    :: no_of_regions
+!
+!     ---------------
+!     Local variables
+!     ---------------
+!
+      character(len=LINE_LENGTH) :: case_name, line
+      integer                    :: fID
+      integer                    :: io
+!
+!     Initialize
+!     ----------
+      no_of_regions = 0
+!
+!     Get case file name
+!     ------------------
+      call get_command_argument(1, case_name)
+
+!
+!     Open case file
+!     --------------
+      open ( newunit = fID , file = case_name , status = "old" , action = "read" )
+
+!
+!     Read the whole file to find overenriching regions
+!     -------------------------------------------------
+readloop:do 
+         read ( fID , '(A)' , iostat = io ) line
+
+         if ( io .lt. 0 ) then
+!
+!           End of file
+!           -----------
+            line = ""
+            exit readloop
+
+         elseif ( io .gt. 0 ) then
+!
+!           Error
+!           -----
+            errorMessage(STD_OUT)
+            error stop "error stopped."
+
+         else
+!
+!           Succeeded
+!           ---------
+            line = getSquashedLine( line )
+
+            if ( index ( line , '#defineadaptvariable' ) .gt. 0 ) then
+               no_of_regions = no_of_regions + 1
+            end if
+            
+         end if
+         
+      end do readloop
+!
+!     Close case file
+!     ---------------
+      close(fID)                             
+
+   end subroutine getNoOfpAdaptVariables
+!
+!///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+!
+   subroutine pAdaptVariableRange(adaptVar,mesh,NNew)
+      implicit none
+      !---------------------------------------
+      type(pAdaptVariable_t), allocatable :: adaptVar(:)
+      type(HexMesh), intent(in)          :: mesh
+      integer                            :: NNew(:,:)
+      !---------------------------------------
+      integer :: eID, oID       ! Element counter
+      real(kind=RP) :: maxQ, minQ
+	  
+      !---------------------------------------
+      
+      if (.not. allocated(adaptVar) ) return
+	  
+	  ! NNew(1,:) = adaptVar(1) % polynomialDef (1)
+	  ! NNew(2,:) = adaptVar(1) % polynomialDef (2)
+	  ! NNew(3,:) = adaptVar(1) % polynomialDef (3)
+      
+      do oID = 1, size(adaptVar)
+         
+         do eID=1, mesh % no_of_elements
+		    
+			maxQ = maxval(mesh % elements(eID) % storage % Q(adaptVar(oID) % variable,:,:,:))
+			minQ = minval(mesh % elements(eID) % storage % Q(adaptVar(oID) % variable,:,:,:))
+		    
+            if (((maxQ.lt.adaptVar(oID)%maxValue).and.(maxQ.gt.adaptVar(oID)%minValue)).or.((minQ.lt.adaptVar(oID)%maxValue).and.(minQ.gt.adaptVar(oID)%minValue))) then
+			       NNew (1,eID) =  adaptVar(oID) % polynomial(1)
+				   NNew (2,eID) =  adaptVar(oID) % polynomial(2)
+				   NNew (3,eID) =  adaptVar(oID) % polynomial(3)
+			end if 
+         end do
+      end do
+      
+   end subroutine pAdaptVariableRange
 !
 !///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 !

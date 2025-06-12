@@ -777,10 +777,7 @@
                   call sem % particles % inject( sem % mesh )
                endif
             endif
-
          endif
-
-
 #endif
 !
 !        Print monitors

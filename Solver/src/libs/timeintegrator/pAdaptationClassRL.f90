@@ -373,6 +373,19 @@ module pAdaptationClassRL
             call this % overenriching(i) % initialize (i)
          end do
       end if
+	  
+!     Adaptation based on variable value
+!     **********************************
+      
+      call getNoOfpAdaptVariables(no_of_overen_boxes)
+         
+      if (no_of_overen_boxes > 0) then
+         allocate ( this % adaptVariable(no_of_overen_boxes) )
+         
+         do i = 1, no_of_overen_boxes
+            call this % adaptVariable(i) % initialize (i)
+         end do
+      end if
 
 !     Policy definition for the RL agent
 !     **********************************
@@ -547,8 +560,6 @@ module pAdaptationClassRL
             write(STD_OUT,*) '****    Percentage of elements to be adapted: ', adaptationPercentage, '% ****'
             write(STD_OUT,*)
          end if  
-
-
 !
 !     --------------------------------------
 !     Write pre-adaptation mesh and solution
@@ -565,7 +576,12 @@ module pAdaptationClassRL
 !     ----------------------------
 !
       call OverEnrichRegions(this % overenriching, sem % mesh, NNew, this % NxyzMax, NMIN)
-
+!
+!     ----------------------------
+!     Adaptation based on variable
+!     ----------------------------
+!
+      call pAdaptVariableRange(this % adaptVariable, sem % mesh, NNew)
 !
 !     ---------------------------------------------------------------
 !     Restrict polynomial order jump and make boundaries p-conforming
@@ -577,7 +593,6 @@ module pAdaptationClassRL
          call this % makeBoundariesPConforming(sem % mesh, NNew, last)
          ! call ReorganizePolOrders(sem % mesh % faces, NNew, last)  #Not implemented for MPI, but not required if pmax<=6 and pmin>=2
       end do
-
 !
 !     ----------------------------------
 !     Adapt sem to new polynomial orders
@@ -586,7 +601,6 @@ module pAdaptationClassRL
       call Stopwatch % Start("pAdapt: Adaptation")
       call sem % mesh % pAdapt_MPI (NNew, controlVariables)
       call Stopwatch % Pause("pAdapt: Adaptation")
-
 !
 !     ----------------------------------
 !     Reconstruct sponge
@@ -599,8 +613,7 @@ module pAdaptationClassRL
       ! Reconstruct probes
       do i=1, sem % monitors % no_of_probes
          call sem % monitors % probes(i) % Initialization (sem % mesh, i, trim(sem % monitors % solution_file), .FALSE.)
-      end do
-          
+      end do       
 !
 !     ---------------------------------------------------
 !     Write post-adaptation mesh, solution and order file
@@ -610,11 +623,9 @@ module pAdaptationClassRL
          write(AdaptedMeshFile,'(A,A,I10.10,A)')  trim( this % solutionFileName ), '_', itera+1, '.hsol'
       else
          write(AdaptedMeshFile,'(A,A,I2.2,A)')  trim( this % solutionFileName ), '_p-Adapted_Stage_', Stage, '.hsol'
-      end if
-      
+      end if 
       call sem % mesh % Export(AdaptedMeshFile)
       call sem % mesh % ExportOrders(AdaptedMeshFile)
-      
       if (this % restartFiles) call sem % mesh % SaveSolution(itera,t,trim(AdaptedMeshFile),this % saveGradients,this % saveSensor)
       
 !
@@ -623,14 +634,12 @@ module pAdaptationClassRL
 !     ----------------
 !
       call ComputeTimeDerivative(sem % mesh, sem % particles, t, CTD_IGNORE_MODE)
-
 !
 !     ---------------------
 !     Update HO arrays
 !     ---------------------
 !
       call sem % mesh % UpdateHOArrays()
-
 !
 !     --------------------------------------------------------------------------
 !     Perform a reduction to know how many DOFs are in each process
@@ -694,6 +703,10 @@ module pAdaptationClassRL
 !     Initialization of NNew
 !     -------------------------------
       NNew = -1 ! Initialized to negative value
+	  
+	  if (maxval(Pxyz).gt.6) then
+		NNew = Pxyz
+	  else
 
 !     --------------------------------
 !     Select the polynomial order in Direction 1
@@ -1065,6 +1078,8 @@ module pAdaptationClassRL
             e % storage % sensor = max(e % storage % sensor, sqrt(error_sensor / ((Pxyz(1)+1) * (Pxyz(2)+1))))
          end if
       end if
+	  
+	  end if 
       
    end subroutine pAdaptation_pAdaptRL_SelectElemPolorders 
    

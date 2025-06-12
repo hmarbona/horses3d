@@ -249,23 +249,7 @@ module SpatialDiscretization
 !
          select case (mode)
          case (CTD_IGNORE_MODE,CTD_IMEX_EXPLICIT)
-!
-!        --------------------------------------------
-!        Prolong Cahn-Hilliard and iNS to faces
-!        --------------------------------------------
-!
-         call mesh % ProlongSolutionToFaces(NCONS, Level=1)  ! This should be the 
-!
-!        ----------------
-!        Update MPI Faces
-!        ----------------
-!
-#ifdef _HAS_MPI_
-!$omp single
-         call mesh % UpdateMPIFacesSolution(NCONS)
-!$omp end single
-#endif		 
-		 
+
 !$omp do schedule(runtime) private(eID)
             do lID = 1, MLIter(locLevel,1)
 			   eID = MLIter_eID(lID)
@@ -273,21 +257,6 @@ module SpatialDiscretization
             end do
 !$omp end do      
 
-#ifdef _HAS_MPI_
-!$omp single
-         call mesh % GatherMPIFacesSolution(NCONS)
-!$omp end single
-#endif		 
-
-!$omp do schedule(runtime) private(fID)
-            do lID = 1, MLIter(locLevel,2)
-			    fID = MLIter_fID(lID)
-				associate(f => mesh % faces(fID))
-                f % storage(1) % c(1,:,:) = f % storage(1) % QNS(IMC,:,:)
-				f % storage(2) % c(1,:,:) = f % storage(2) % QNS(IMC,:,:)
-				end associate
-            end do
-!$omp end do
          end select
 
 !
@@ -311,7 +280,7 @@ module SpatialDiscretization
 !        Prolong Cahn-Hilliard concentration to faces
 !        --------------------------------------------
 !
-!         call mesh % ProlongSolutionToFaces(NCOMP)
+         call mesh % ProlongSolutionToFaces(NCOMP)
 !
 !        ----------------
 !        Update MPI Faces
@@ -406,43 +375,43 @@ module SpatialDiscretization
 !        2nd step: If IMEX_IMPLCIIT, get the chemical potential laplacian and exit
 !/////////////////////////////////////////////////////////////////////////////////
 !
-         ! select case (mode)
-         ! case (CTD_IMEX_IMPLICIT)
+         select case (mode)
+         case (CTD_IMEX_IMPLICIT)
 !
 !           ------------------------------------------------------------
 !           Get concentration (lifted) gradients (also prolong to faces)
 !           ------------------------------------------------------------
-! !
-            ! call CHDiscretization % ComputeGradient(NCOMP, NCOMP, mesh, time, chGradientVariables)
-! !
-! !           --------------------
-! !           Update MPI Gradients
-! !           --------------------
-! !
-! #ifdef _HAS_MPI_
-! !$omp single
-            ! call mesh % UpdateMPIFacesGradients(NCOMP)
-            ! call mesh % GatherMPIFacesGradients(NCOMP)
-! !$omp end single
-! #endif
-! !
-! !           ----------------------
-! !           Get chemical potential
-! !           ----------------------
-! !
-! !           Get the concentration Laplacian (into QDot => cDot)
+!
+            call CHDiscretization % ComputeGradient(NCOMP, NCOMP, mesh, time, chGradientVariables)
+!
+!           --------------------
+!           Update MPI Gradients
+!           --------------------
+!
+#ifdef _HAS_MPI_
+!$omp single
+            call mesh % UpdateMPIFacesGradients(NCOMP)
+            call mesh % GatherMPIFacesGradients(NCOMP)
+!$omp end single
+#endif
+!
+!           ----------------------
+!           Get chemical potential
+!           ----------------------
+!
+!           Get the concentration Laplacian (into QDot => cDot)
 
-            ! call ComputeLaplacian(mesh, time)
-! !
-! !           ------------------------------------------
-! !           *** WARNING! The storage leaves set to CH!
-! !           ------------------------------------------
-! !
-! !$omp single
-            ! call mesh % SetStorageToEqn(C_BC)
-            ! call SetBoundaryConditionsEqn(C_BC)
-! !$omp end single
-         ! end select
+            call ComputeLaplacian(mesh, time)
+!
+!           ------------------------------------------
+!           *** WARNING! The storage leaves set to CH!
+!           ------------------------------------------
+!
+!$omp single
+            call mesh % SetStorageToEqn(C_BC)
+            call SetBoundaryConditionsEqn(C_BC)
+!$omp end single
+         end select
 !
 !///////////////////////////////////////////////
 !        3rd step: Navier-Stokes time derivative
@@ -459,18 +428,18 @@ module SpatialDiscretization
 !        Prolong solution to faces        
 !        -------------------------
 !
-         ! call mesh % ProlongSolutionToFaces(NCONS)
+         call mesh % ProlongSolutionToFaces(NCONS)
 ! !
 ! !        ----------------
 ! !        Update MPI Faces
 ! !        ----------------
 ! !
-! #ifdef _HAS_MPI_
-! !$omp single
-         ! call mesh % UpdateMPIFacesSolution(NCONS)
-         ! call mesh % GatherMPIFacesSolution(NCONS)
-! !$omp end single
-! #endif
+#ifdef _HAS_MPI_
+!$omp single
+         call mesh % UpdateMPIFacesSolution(NCONS)
+         call mesh % GatherMPIFacesSolution(NCONS)
+!$omp end single
+#endif
 !
 !        -------------------------------------
 !        Get the density in faces and elements
@@ -580,63 +549,63 @@ module SpatialDiscretization
 !        If IMEX_Explicit, compute cDot with the explicit part of the chemical potential
 !        -------------------------------------------------------------------------------
 !
-         ! select case (mode)
-         ! case(CTD_IMEX_EXPLICIT)
-! !$omp do schedule(runtime)
-            ! do eID = 1, size(mesh % elements)
-! !
-! !            + Linear part
-               ! mesh % elements(eID) % storage % mu = - IMEX_S0 * mesh % elements(eID) % storage % c &
-                                                     ! - 1.5_RP*(1.0_RP - IMEX_K0)*multiphase % sigma*multiphase % eps*mesh % elements(eID) % storage % cDot
-               ! !mesh % elements(eID) % storage % mu = - IMEX_S0 * mesh % elements(eID) % storage % c &
-               ! !                                      - (1.0_RP - IMEX_K0)* POW2(multiphase % eps)*mesh % elements(eID) % storage % cDot
-! !
-! !            + NonLinear part
-               ! !call AddQuarticDWPDerivative(mesh % elements(eID) % storage % c, mesh % elements(eID) % storage % mu)
-               ! call Multiphase_AddChemFEDerivative(mesh % elements(eID) % storage % c, mesh % elements(eID) % storage % mu)
-            ! end do
-! !$omp end do         
-! !
-! !           -----------------------------------
-! !           Prolong chemical potential to faces
-! !           -----------------------------------
-! !
-! !$omp single
-            ! call mesh % SetStorageToEqn(MU_BC)
-            ! call SetBoundaryConditionsEqn(MU_BC)
-! !$omp end single
-            ! call mesh % ProlongSolutionToFaces(NCOMP)
-! !
-! !           ------------------------------------------------------------
-! !           Get concentration (lifted) gradients (also prolong to faces)
-! !           ------------------------------------------------------------
-! !
-            ! call CHDiscretization % ComputeGradient(NCOMP, NCOMP, mesh, time, chGradientVariables)
-! !
-! !           --------------------------------
-! !           Get chemical potential laplacian
-! !           --------------------------------
-! !
-! !           Get the concentration Laplacian (into QDot => cDot)
+         select case (mode)
+         case(CTD_IMEX_EXPLICIT)
+!$omp do schedule(runtime)
+            do eID = 1, size(mesh % elements)
+!
+!            + Linear part
+               mesh % elements(eID) % storage % mu = - IMEX_S0 * mesh % elements(eID) % storage % c &
+                                                     - 1.5_RP*(1.0_RP - IMEX_K0)*multiphase % sigma*multiphase % eps*mesh % elements(eID) % storage % cDot
+               !mesh % elements(eID) % storage % mu = - IMEX_S0 * mesh % elements(eID) % storage % c &
+               !                                      - (1.0_RP - IMEX_K0)* POW2(multiphase % eps)*mesh % elements(eID) % storage % cDot
+!
+!            + NonLinear part
+               !call AddQuarticDWPDerivative(mesh % elements(eID) % storage % c, mesh % elements(eID) % storage % mu)
+               call Multiphase_AddChemFEDerivative(mesh % elements(eID) % storage % c, mesh % elements(eID) % storage % mu)
+            end do
+!$omp end do         
+!
+!           -----------------------------------
+!           Prolong chemical potential to faces
+!           -----------------------------------
+!
+!$omp single
+            call mesh % SetStorageToEqn(MU_BC)
+            call SetBoundaryConditionsEqn(MU_BC)
+!$omp end single
+            call mesh % ProlongSolutionToFaces(NCOMP)
+!
+!           ------------------------------------------------------------
+!           Get concentration (lifted) gradients (also prolong to faces)
+!           ------------------------------------------------------------
+!
+            call CHDiscretization % ComputeGradient(NCOMP, NCOMP, mesh, time, chGradientVariables)
+!
+!           --------------------------------
+!           Get chemical potential laplacian
+!           --------------------------------
+!
+!           Get the concentration Laplacian (into QDot => cDot)
 
-            ! call ComputeLaplacian(mesh, time)
+            call ComputeLaplacian(mesh, time)
 
-! !$omp single
-            ! call mesh % SetStorageToEqn(NS_BC)
-            ! call SetBoundaryConditionsEqn(NS_BC)
-! !$omp end single
-! !
-! !           -----------------------------------------
-! !           Add the Chemical potential to the NS QDot
-! !           -----------------------------------------
-! !
-! !$omp do schedule(runtime)
-            ! do eID = 1, size(mesh % elements)
-               ! mesh % elements(eID) % storage % QDot(IMC,:,:,:) =   mesh % elements(eID) % storage % QDot(IMC,:,:,:) &
-                                                                  ! + multiphase % M0*mesh % elements(eID) % storage % cDot(1,:,:,:)
-            ! end do
-! !$omp end do
-         ! end select
+!$omp single
+            call mesh % SetStorageToEqn(NS_BC)
+            call SetBoundaryConditionsEqn(NS_BC)
+!$omp end single
+!
+!           -----------------------------------------
+!           Add the Chemical potential to the NS QDot
+!           -----------------------------------------
+!
+!$omp do schedule(runtime)
+            do eID = 1, size(mesh % elements)
+               mesh % elements(eID) % storage % QDot(IMC,:,:,:) =   mesh % elements(eID) % storage % QDot(IMC,:,:,:) &
+                                                                  + multiphase % M0*mesh % elements(eID) % storage % cDot(1,:,:,:)
+            end do
+!$omp end do
+         end select
 !$omp end parallel
 	  end associate
 !
@@ -663,7 +632,7 @@ module SpatialDiscretization
 !        ---------------
 !
          integer     :: eID , i, j, k, ierr, fID, iFace, iEl, locLevel,lID
-         real(kind=RP) :: sqrtRho, invSqrtRho
+         real(kind=RP) :: sqrtRho, invSqrtRho, factor, minvalC, maxvalC
          real(kind=RP)  :: mu_smag, delta
          real(kind=RP), dimension(NCONS)  :: Source
 		 logical                          :: computeIBMSource		 
@@ -688,13 +657,23 @@ module SpatialDiscretization
 						    eID = MLIter_eID(lID)
                             associate(e => mesh % elements(eID))
                             delta = (e % geom % Volume / product(e % Nxyz + 1)) ** (1.0_RP / 3.0_RP)
+							
+							factor = 1.0_RP
+							minvalC = minval(e % storage % Q(1,:,:,:))
+							maxvalC = maxval(e % storage % Q(1,:,:,:))
+							if (((maxvalC.lt.0.999).and.(maxvalC.gt.0.000001)).or.((minvalC.lt.0.999).and.(minvalC.gt.0.000001))) then
+								factor = 10.0_RP
+							end if 
                             do k = 0, e % Nxyz(3) ; do j = 0, e % Nxyz(2) ; do i = 0, e % Nxyz(1)
 									call LESModel % ComputeViscosity(delta, e % geom % dWall(i,j,k), e % storage % Q(:,i,j,k),   &
                                                                                                e % storage % U_x(:,i,j,k), &
                                                                                                e % storage % U_y(:,i,j,k), &
                                                                                                e % storage % U_z(:,i,j,k), &
                                                                                                e % storage % mu_turb_NS(i,j,k) )
-									e % storage % mu_NS(1,i,j,k) = e % storage % mu_turb_NS(i,j,k)
+									e % storage % mu_NS(1,i,j,k) = e % storage % mu_turb_NS(i,j,k) *factor
+																										
+																				 
+				  
 									
                             end do                ; end do                ; end do
                             end associate
@@ -841,10 +820,10 @@ module SpatialDiscretization
                associate ( e => mesh % elements(eID) )
                e % storage % S_NS = 0.0_RP
                do k = 0, e % Nxyz(3)   ; do j = 0, e % Nxyz(2) ; do i = 0, e % Nxyz(1)
-                  !InvSqrtRho = 1.0_RP / sqrt(e % storage % rho(i,j,k))
+                  InvSqrtRho = 1.0_RP / sqrt(e % storage % rho(i,j,k))
                   call UserDefinedSourceTermNS(e % geom % x(:,i,j,k), e % storage % Q(:,i,j,k), t, e % storage % S_NS(:,i,j,k), thermodynamics, dimensionless, refValues, multiphase)
                   ! scale UserDefinedSourceTerm momentum with sqrtRho
-                  !e % storage % S_NS(:,i,j,k) = e % storage % S_NS(:,i,j,k) * [1.0_RP,InvSqrtRho,InvSqrtRho,InvSqrtRho,1.0_RP]
+                  e % storage % S_NS(:,i,j,k) = e % storage % S_NS(:,i,j,k) * [1.0_RP,InvSqrtRho,InvSqrtRho,InvSqrtRho,1.0_RP]
                end do                  ; end do                ; end do
                end associate
             end do
@@ -1556,7 +1535,7 @@ module SpatialDiscretization
 !        ---------------
 !
          integer       :: iFace, i, j, side
-         real(kind=RP) :: delta, mu_smag
+         real(kind=RP) :: delta, mu_smag, factor, minvalC, maxvalC, minvalC2, maxvalC2
 
 
          if ( LESModel % Active ) then
@@ -1565,6 +1544,15 @@ module SpatialDiscretization
                associate(f => mesh % faces(face_ids(iFace)))
 
                delta = sqrt(f % geom % surface / product(f % Nf + 1))
+			   factor = 1.0_RP
+			   minvalC = minval(f % storage(1) % Q(1,:,:))
+			   maxvalC = maxval(f % storage(1) % Q(1,:,:))
+			   minvalC2 = minval(f % storage(2) % Q(1,:,:))
+			   maxvalC2 = maxval(f % storage(2) % Q(1,:,:))
+			   minvalC = max(minvalC,minvalC2)
+			   maxvalC = min(maxvalC,maxvalC2)
+			   
+
                do j = 0, f % Nf(2) ; do i = 0, f % Nf(1)
                   do side = 1, no_of_sides
                      call LESModel % ComputeViscosity(delta, f % geom % dWall(i,j), f % storage(side) % Q(:,i,j),   &
@@ -1572,7 +1560,8 @@ module SpatialDiscretization
                                                                                     f % storage(side) % U_y(:,i,j), &
                                                                                     f % storage(side) % U_z(:,i,j), &
                                                                                     mu_smag)
-                     f % storage(side) % mu_NS(1,i,j) =  mu_smag
+                     f % storage(side) % mu_NS(1,i,j) =  mu_smag * factor
+	 
                   end do
                end do              ; end do
                end associate
