@@ -9,11 +9,10 @@ module RiemannSolvers_MUKeywordsModule
 !    --------------------------
      character(len=KEYWORD_LENGTH), parameter :: RIEMANN_CENTRAL_NAME = "central"
      character(len=KEYWORD_LENGTH), parameter :: RIEMANN_EXACT_NAME   = "exact"
-	 character(len=KEYWORD_LENGTH), parameter :: RIEMANN_EXACT_2_NAME   = "exact_2"
-	 character(len=KEYWORD_LENGTH), parameter :: RIEMANN_EXACT_3_NAME   = "exact_3"
+	 character(len=KEYWORD_LENGTH), parameter :: RIEMANN_EXACT_CONSISTENT_NAME   = "exact_consistent"
 
      enum, bind(C)
-        enumerator :: RIEMANN_CENTRAL = 1, RIEMANN_EXACT, RIEMANN_EXACT_2, RIEMANN_EXACT_3
+        enumerator :: RIEMANN_CENTRAL = 1, RIEMANN_EXACT, RIEMANN_EXACT_CONSISTENT
      end enum
 
 end module RiemannSolvers_MUKeywordsModule
@@ -96,14 +95,10 @@ module RiemannSolvers_MU
                RiemannSolver => ExactRiemannSolver
                whichRiemannSolver = RIEMANN_EXACT
 			   
-			case(RIEMANN_EXACT_2_NAME)
-               RiemannSolver => ExactRiemannSolver_2
-               whichRiemannSolver = RIEMANN_EXACT_2
+			case(RIEMANN_EXACT_CONSISTENT_NAME)
+               RiemannSolver => ExactRiemannSolverConsistent
+               whichRiemannSolver = RIEMANN_EXACT_CONSISTENT
 			   
-			case(RIEMANN_EXACT_3_NAME)
-               RiemannSolver => ExactRiemannSolver_3
-               whichRiemannSolver = RIEMANN_EXACT_3
-
             case default
                print*, "Riemann Solver not recognized."
                errorMessage(STD_OUT)
@@ -137,11 +132,9 @@ module RiemannSolvers_MU
          case (RIEMANN_EXACT)
             write(STD_OUT,'(30X,A,A30,A)') "->","Riemann solver: ","Exact"
 		 
-		 case (RIEMANN_EXACT_2)
-            write(STD_OUT,'(30X,A,A30,A)') "->","Riemann solver: ","Exact_v2"
-			
-		 case (RIEMANN_EXACT_3)
-            write(STD_OUT,'(30X,A,A30,A)') "->","Riemann solver: ","Exact_v3"
+		 case (RIEMANN_EXACT_CONSISTENT)
+            write(STD_OUT,'(30X,A,A30,A)') "->","Riemann solver: ","Exact_Consistent"
+
 
          end select
 
@@ -323,7 +316,10 @@ module RiemannSolvers_MU
 
       end subroutine ExactRiemannSolver
 
-      subroutine ExactRiemannSolver_2(QLeft, QRight, rhoL, rhoR, muL, muR, nHat, t1, t2, fL, fR)
+!        ************************************************
+!        Exact Riemann Consistent with the derivation - Pressure is as in the original Riemann
+!        ************************************************
+      subroutine ExactRiemannSolverConsistent(QLeft, QRight, rhoL, rhoR, muL, muR, nHat, t1, t2, fL, fR)
          implicit none
          real(kind=RP), intent(in)       :: QLeft(1:NCONS)
          real(kind=RP), intent(in)       :: QRight(1:NCONS)
@@ -342,99 +338,7 @@ module RiemannSolvers_MU
          real(kind=RP)  :: cL,uL, vL, wL, pL, invRhoL, invSqrtRhoL, lambdaMinusL, lambdaPlusL, invMa2L
          real(kind=RP)  :: cR,uR, vR, wR, pR, invRhoR, invSqrtRhoR, lambdaMinusR, lambdaPlusR, invMa2R
          real(kind=RP)  :: rhoStarL, rhoStarR, uStar, pStar, rhoStar, vStar, wStar, cuStar, halfRhouStar
-         real(kind=RP)  :: QLRot(NCONS), QRRot(NCONS)
-         real(kind=RP)  :: lambda_mu = 0.0_RP
-		 real(kind=RP)  :: invMa2Avg
-
-!
-!        Rotate the variables to the face local frame using normal and tangent vectors
-!        -----------------------------------------------------------------------------
-         invRhoL     = 1.0_RP / rhoL
-         invSqrtRhoL = sqrt(invRhoL)
-         cL = QLeft(IMC)
-         uL = invSqrtRhoL * (QLeft(IMSQRHOU) * nHat(1) + QLeft(IMSQRHOV) * nHat(2) + QLeft(IMSQRHOW) * nHat(3))
-         vL = invSqrtRhoL * (QLeft(IMSQRHOU) * t1(1)   + QLeft(IMSQRHOV) * t1(2)   + QLeft(IMSQRHOW) * t1(3))
-         wL = invSqrtRhoL * (QLeft(IMSQRHOU) * t2(1)   + QLeft(IMSQRHOV) * t2(2)   + QLeft(IMSQRHOW) * t2(3))
-         pL = QLeft(IMP)
-
-         invRhoR     = 1.0_RP / rhoR
-         invSqrtRhoR = sqrt(invRhoR)
-         cR = QRight(IMC)
-         uR = invSqrtRhoR * (QRight(IMSQRHOU) * nHat(1) + QRight(IMSQRHOV) * nHat(2) + QRight(IMSQRHOW) * nHat(3))
-         vR = invSqrtRhoR * (QRight(IMSQRHOU) * t1(1)   + QRight(IMSQRHOV) * t1(2)   + QRight(IMSQRHOW) * t1(3))
-         wR = invSqrtRhoR * (QRight(IMSQRHOU) * t2(1)   + QRight(IMSQRHOV) * t2(2)   + QRight(IMSQRHOW) * t2(3))
-         pR = QRight(IMP)
-
-!        Get the left and right face inv Mach^2 
-         invMa2L = dimensionless % invMa2(1) * min(max(cL,0.0_RP),1.0_RP) + dimensionless % invMa2(2) * (1.0_RP - min(max(cL,0.0_RP),1.0_RP))
-         invMa2R = dimensionless % invMa2(1) * min(max(cR,0.0_RP),1.0_RP) + dimensionless % invMa2(2) * (1.0_RP - min(max(cR,0.0_RP),1.0_RP))
-		 invMa2Avg = 0.5_RP * (invMa2L/rhoL + invMa2R/rhoR)
-!
-!        Compute the Star Region
-!        -----------------------
-         lambdaMinusR = 0.5_RP * (uR - sqrt(uR*uR + 4.0_RP*invMa2Avg))
-         lambdaPlusR  = 0.5_RP * (uR + sqrt(uR*uR + 4.0_RP*invMa2Avg))
-
-         lambdaMinusL = 0.5_RP * (uL - sqrt(uL*uL + 4.0_RP*invMa2Avg))
-         lambdaPlusL  = 0.5_RP * (uL + sqrt(uL*uL + 4.0_RP*invMa2Avg))
-
-         uStar = (pR-pL+rhoR*uR*lambdaMinusR-rhoL*uL*lambdaPlusL)/(rhoR*lambdaMinusR - rhoL*lambdaPlusL)
-         pStar = pR + rhoR*lambdaMinusR*(uR-uStar)
-         rhoStarL = (rhoL*lambdaPlusL)/(uStar-lambdaMinusL)
-         rhoStarR = (rhoR*lambdaMinusR)/(uStar - lambdaPlusR)
-
-         if ( uStar .ge. 0.0_RP ) then
-            rhoStar = rhoStarL
-            vStar   = vL
-            wStar   = wL
-
-         else
-            rhoStar = rhoStarR
-            vStar   = vR
-            wStar   = wR
-
-         end if
-
-         cuStar = 0.5_RP*(cL*uL + cR*uR)
-         halfRhouStar = 0.5_RP*rhoStar*uStar
-!
-!      - Add first the common (conservative) part
-         !fL = [cuStar+lambda_mu*(muL-muR), rhoStar*uStar*uStar + pStar, rhoStar*uStar*vStar, rhoStar*uStar*wStar, dimensionless % invMa2 * uStar]
-         fL = [cuStar+lambda_mu*(muL-muR), halfRhouStar*uStar + pStar, halfRhouStar*vStar, halfRhouStar*wStar, 0.0_RP] ! 0.5*(invMa2L+invMa2R) * uStar
-         fR = fL
-!
-!      - Add the non--conservative part
-         fL = fL + [0.0_RP, cL*0.5_RP*(muR-muL)+ 0.25_RP*rhoL*uL*(uR-uL),0.25_RP*rhoL*uL*(vR-vL), 0.25_RP*rhoL*uL*(wR-wL), 0.5_RP*invMa2L*(uR-uL)]
-         fR = fR + [0.0_RP, cR*0.5_RP*(muL-muR)+ 0.25_RP*rhoR*uR*(uL-uR),0.25_RP*rhoR*uR*(vL-vR), 0.25_RP*rhoR*uR*(wL-wR), 0.5_RP*invma2R*(uL-uR)]
-!
-!        ************************************************
-!        Return momentum equations to the cartesian frame
-!        ************************************************
-!
-         fL(2:4) = nHat*fL(2) + t1*fL(3) + t2*fL(4)
-         fR(2:4) = nHat*fR(2) + t1*fR(3) + t2*fR(4)
-
-      end subroutine ExactRiemannSolver_2
-      subroutine ExactRiemannSolver_3(QLeft, QRight, rhoL, rhoR, muL, muR, nHat, t1, t2, fL, fR)
-         implicit none
-         real(kind=RP), intent(in)       :: QLeft(1:NCONS)
-         real(kind=RP), intent(in)       :: QRight(1:NCONS)
-         real(kind=RP), intent(in)       :: rhoL
-         real(kind=RP), intent(in)       :: rhoR
-         real(kind=RP), intent(in)       :: muL
-         real(kind=RP), intent(in)       :: muR
-         real(kind=RP), intent(in)       :: nHat(1:NDIM), t1(NDIM), t2(NDIM)
-         real(kind=RP), intent(out)      :: fL(1:NCONS)
-         real(kind=RP), intent(out)      :: fR(1:NCONS)
-!
-!        ---------------
-!        Local variables
-!        ---------------
-!
-         real(kind=RP)  :: cL,uL, vL, wL, pL, invRhoL, invSqrtRhoL, lambdaMinusL, lambdaPlusL, invMa2L
-         real(kind=RP)  :: cR,uR, vR, wR, pR, invRhoR, invSqrtRhoR, lambdaMinusR, lambdaPlusR, invMa2R
-         real(kind=RP)  :: rhoStarL, rhoStarR, uStar, pStar, rhoStar, vStar, wStar, cuStar, halfRhouStar
-         real(kind=RP)  :: QLRot(NCONS), QRRot(NCONS), invMa2Avg
+         real(kind=RP)  :: QLRot(NCONS), QRRot(NCONS), invMa2Avg, halfRhouL, halfRhouR
          real(kind=RP)  :: lambda_mu = 0.0_RP
 
 !
@@ -457,17 +361,16 @@ module RiemannSolvers_MU
          pR = QRight(IMP)
 
 !        Get the left and right face inv Mach^2 
-         invMa2L = dimensionless % invMa2(1) * min(max(cL,0.0_RP),1.0_RP) + dimensionless % invMa2(2) * (1.0_RP - min(max(cL,0.0_RP),1.0_RP))
+         invMa2L = dimensionless % invMa2(1) * min(max(cL,0.0_RP),1.0_RP) + dimensionless % invMa2(2) * (1.0_RP - min(max(cL,0.0_RP),1.0_RP)) ! This is rhoL cL^2
          invMa2R = dimensionless % invMa2(1) * min(max(cR,0.0_RP),1.0_RP) + dimensionless % invMa2(2) * (1.0_RP - min(max(cR,0.0_RP),1.0_RP))
-		 invMa2Avg = 0.5_RP * (invMa2L/rhoL + invMa2R/rhoR)
 !
 !        Compute the Star Region
 !        -----------------------
-         lambdaMinusR = 0.5_RP * (uR - sqrt(uR*uR + 4.0_RP*invMa2Avg))
-         lambdaPlusR  = 0.5_RP * (uR + sqrt(uR*uR + 4.0_RP*invMa2Avg))
+         lambdaMinusR = 0.5_RP * (uR - sqrt(uR*uR + 4.0_RP*invMa2R/rhoR))
+         lambdaPlusR  = 0.5_RP * (uR + sqrt(uR*uR + 4.0_RP*invMa2R/rhoR))
 
-         lambdaMinusL = 0.5_RP * (uL - sqrt(uL*uL + 4.0_RP*invMa2Avg))
-         lambdaPlusL  = 0.5_RP * (uL + sqrt(uL*uL + 4.0_RP*invMa2Avg))
+         lambdaMinusL = 0.5_RP * (uL - sqrt(uL*uL + 4.0_RP*invMa2L/rhoL))
+         lambdaPlusL  = 0.5_RP * (uL + sqrt(uL*uL + 4.0_RP*invMa2L/rhoL))
 
          uStar = (pR-pL+rhoR*uR*lambdaMinusR-rhoL*uL*lambdaPlusL)/(rhoR*lambdaMinusR - rhoL*lambdaPlusL)
          pStar = pR + rhoR*lambdaMinusR*(uR-uStar)
@@ -488,15 +391,17 @@ module RiemannSolvers_MU
 
          cuStar = 0.5_RP*(cL*uL + cR*uR)
          halfRhouStar = 0.5_RP*rhoStar*uStar
+		 halfRhouL = 0.5_RP*rhoL*uL
+		 halfRhouR = 0.5_RP*rhoR*uR
 !
 !      - Add first the common (conservative) part
-         !fL = [cuStar+lambda_mu*(muL-muR), rhoStar*uStar*uStar + pStar, rhoStar*uStar*vStar, rhoStar*uStar*wStar, dimensionless % invMa2 * uStar]
-         fL = [cuStar+lambda_mu*(muL-muR), rhoStar*uStar*uStar + pStar, rhoStar*uStar*vStar, rhoStar*uStar*wStar, 0.5*(invMa2L+invMa2R) * uStar]
+         fL = [cuStar+lambda_mu*(muL-muR), halfRhouStar*uStar + pStar, halfRhouStar*vStar, halfRhouStar*wStar, 0.0_RP] 
          fR = fL
 !
 !      - Add the non--conservative part
-         fL = fL + [0.0_RP, cL*0.5_RP*(muR-muL)-halfRhouStar*uL,-halfRhouStar*vL, -halfRhouStar*wL, -invMa2L*uL]
-         fR = fR + [0.0_RP, cR*0.5_RP*(muL-muR)-halfRhouStar*uR,-halfRhouStar*vR, -halfRhouStar*wR, -invMa2R*uR]
+         fL = fL + [0.0_RP, cL*0.5_RP*(muR-muL)+ 0.5_RP*halfRhouStar*(uStar-uL),0.5_RP*halfRhouStar*(vStar-vL), 0.5_RP*halfRhouStar*(wStar-wL), (invMa2L)*(uStar-uL)]
+         fR = fR + [0.0_RP, cR*0.5_RP*(muL-muR)+ 0.5_RP*halfRhouStar*(uStar-uR),0.5_RP*halfRhouStar*(vStar-vR), 0.5_RP*halfRhouStar*(wStar-wR), (invMa2R)*(uStar-uR)]
+!
 !
 !        ************************************************
 !        Return momentum equations to the cartesian frame
@@ -505,5 +410,5 @@ module RiemannSolvers_MU
          fL(2:4) = nHat*fL(2) + t1*fL(3) + t2*fL(4)
          fR(2:4) = nHat*fR(2) + t1*fR(3) + t2*fR(4)
 
-      end subroutine ExactRiemannSolver_3
+      end subroutine ExactRiemannSolverConsistent
 end module RiemannSolvers_MU
