@@ -597,7 +597,7 @@ Module DGSEMClass
 !       ---------------------
 	    dt         = controlVariables % doublePrecisionValueForKey("dt")
 	    call DetermineCFL(self, dt, globalMax, globalMin, maxCFLInterf,.true.)
-	    call self % mesh % MLRK % update (self % mesh, ML_CFL_CutOff, globalMax, globalMin, maxCFLInterf)
+	    call self % mesh % MLRK % update (self % mesh, ML_CFL_CutOff, globalMax, globalMin, maxCFLInterf, .false.)
 		
 		call self % mesh % MLRK % sendGlobalID ( self % mesh, globIDLevelPartition, nElementLevelPartition)
 		globIDLevel   = globIDLevelPartition
