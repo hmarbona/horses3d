@@ -516,11 +516,7 @@ end module ProblemFileFunctions
 
             CALL FTAssertEqual(expectedValue = entropyRate_saved+1.0_RP, &
                                actualValue   = monitors % volumeMonitors(4) % values(1,1)+1.0_RP, &
-<<<<<<< HEAD
-                               tol           = 1.d-8, &
-=======
                                tol           = 1.d-9, &
->>>>>>> ae0b8bf677fd0d2d19f670c67da98f035c1b3060
                                msg           = "Entropy-Rate")
 
             CALL FTAssertEqual(expectedValue = residuals_saved(1)+100.0_RP, &
@@ -545,11 +541,7 @@ end module ProblemFileFunctions
 
             CALL FTAssertEqual(expectedValue = residuals_saved(5)+100.0_RP, &
                                actualValue   = monitors % residuals % values(5,1)+100.0_RP, &
-<<<<<<< HEAD
-                               tol           = 1.d-5, &
-=======
                                tol           = 1.d-9, &
->>>>>>> ae0b8bf677fd0d2d19f670c67da98f035c1b3060
                                msg           = "Energy Residual")
                                
             CALL sharedManager % summarizeAssertions(title = testName,iUnit = 6)
