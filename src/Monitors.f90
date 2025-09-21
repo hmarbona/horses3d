@@ -85,7 +85,6 @@ module MonitorsClass
          character(len=STR_LEN_MONITORS) :: solution_file                                            
          logical, save                   :: FirstCall = .TRUE.
          logical                         :: saveGradients
-		 logical                         :: monitorMem =.FALSE.
 !
 !        Setup the buffer
 !        ----------------
@@ -97,12 +96,6 @@ module MonitorsClass
                     Monitors % SolverSimuTime(BUFFER_SIZE), &
                     Monitors % t(BUFFER_SIZE), &
                     Monitors % iter(BUFFER_SIZE) )
-!
-!        Memory Monitor
-!        ---------------------
-         if ( controlVariables % ContainsKey("monitor memory") ) then
-			monitorMem = controlVariables % LogicalValueForKey ("monitor memory")
-		 end if 
 !
 !        Get the solution file name
 !        --------------------------
@@ -126,7 +119,7 @@ module MonitorsClass
 !
 !        Initialize
 !        ----------
-         call Monitors % residuals % Initialization( solution_file , FirstCall, monitorMem)
+         call Monitors % residuals % Initialization( solution_file , FirstCall )
 
          allocate ( Monitors % volumeMonitors ( Monitors % no_of_volumeMonitors )  )
          do i = 1 , Monitors % no_of_volumeMonitors
@@ -257,12 +250,6 @@ module MonitorsClass
          do i = 1 , NCONS
             write(STD_OUT , '(3X,A10)' , advance = "no" ) trim(dashes)
          end do
-!
-!        Print dashes for memory
-!        --------------------------
-         if (self % residuals % memory) then
-            write(STD_OUT , '(3X,A10)' , advance = "no" ) trim(dashes)
-         end if
 !
 !        Print dashes for volume monitors
 !        --------------------------------
